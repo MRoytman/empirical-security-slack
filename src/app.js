@@ -1,5 +1,6 @@
+require("dotenv").config();
 const { App } = require("@slack/bolt");
-const { getCve, searchCves } = require("./empirical");
+const { getCve, searchCves, getCriticalIndicators } = require("./empirical");
 const { buildCveCard, buildSearchResultsBlocks } = require("./blocks");
 
 const CVE_PATTERN = /^CVE-\d{4}-\d{4,}$/i;
@@ -41,11 +42,15 @@ app.command("/cve", async ({ command, ack, respond }) => {
 
   try {
     if (CVE_PATTERN.test(input)) {
-      const cve = await getCve(input.toUpperCase(), clientId, clientSecret);
+      const cveId = input.toUpperCase();
+      const [cve, ci] = await Promise.all([
+        getCve(cveId, clientId, clientSecret),
+        getCriticalIndicators(cveId, clientId, clientSecret).catch(() => null),
+      ]);
       await respond({
         response_type: "in_channel",
-        blocks: buildCveCard(cve),
-        text: `CVE details for ${input.toUpperCase()}`,
+        blocks: buildCveCard(cve, ci),
+        text: `CVE details for ${cveId}`,
       });
     } else if (input.toLowerCase().startsWith("search ")) {
       const query = input.slice(7).trim();
@@ -58,28 +63,49 @@ app.command("/cve", async ({ command, ack, respond }) => {
       }
       const results = await searchCves(query, clientId, clientSecret);
       const cves = Array.isArray(results) ? results : results?.data || [];
+      const displayed = cves.slice(0, 10);
+      const ciEntries = await Promise.all(
+        displayed.map((c) =>
+          getCriticalIndicators(c.identifier, clientId, clientSecret)
+            .then((ci) => [c.identifier, ci])
+            .catch(() => [c.identifier, null])
+        )
+      );
+      const ciMap = Object.fromEntries(ciEntries);
       await respond({
         response_type: "in_channel",
-        blocks: buildSearchResultsBlocks(cves, query),
+        blocks: buildSearchResultsBlocks(cves, query, ciMap),
         text: `Search results for: ${query}`,
       });
     } else {
       // Try to interpret as a CVE ID with flexible matching
       const normalized = input.toUpperCase();
       if (/^CVE-\d{4}-\d+$/.test(normalized)) {
-        const cve = await getCve(normalized, clientId, clientSecret);
+        const [cve, ci] = await Promise.all([
+          getCve(normalized, clientId, clientSecret),
+          getCriticalIndicators(normalized, clientId, clientSecret).catch(() => null),
+        ]);
         await respond({
           response_type: "in_channel",
-          blocks: buildCveCard(cve),
+          blocks: buildCveCard(cve, ci),
           text: `CVE details for ${normalized}`,
         });
       } else {
         // Fall back to search
         const results = await searchCves(input, clientId, clientSecret);
         const cves = Array.isArray(results) ? results : results?.data || [];
+        const displayed = cves.slice(0, 10);
+        const ciEntries = await Promise.all(
+          displayed.map((c) =>
+            getCriticalIndicators(c.identifier, clientId, clientSecret)
+              .then((ci) => [c.identifier, ci])
+              .catch(() => [c.identifier, null])
+          )
+        );
+        const ciMap = Object.fromEntries(ciEntries);
         await respond({
           response_type: "in_channel",
-          blocks: buildSearchResultsBlocks(cves, input),
+          blocks: buildSearchResultsBlocks(cves, input, ciMap),
           text: `Search results for: ${input}`,
         });
       }

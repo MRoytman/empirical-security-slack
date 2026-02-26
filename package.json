@@ -7,9 +7,15 @@
     "start": "node src/app.js",
     "dev": "node --watch src/app.js"
   },
-  "keywords": ["slack", "cve", "security", "empirical-security"],
+  "keywords": [
+    "slack",
+    "cve",
+    "security",
+    "empirical-security"
+  ],
   "license": "MIT",
   "dependencies": {
-    "@slack/bolt": "^4.1.0"
+    "@slack/bolt": "^4.1.0",
+    "dotenv": "^17.3.1"
   }
 }

@@ -1,163 +1,189 @@
-function severityEmoji(score) {
-  if (score == null) return ":white_circle:";
-  if (score >= 9.0) return ":red_circle:";
-  if (score >= 7.0) return ":large_orange_circle:";
-  if (score >= 4.0) return ":large_yellow_circle:";
-  return ":green_circle:";
-}
-
-function severityLabel(score) {
-  if (score == null) return "N/A";
-  if (score >= 9.0) return "Critical";
-  if (score >= 7.0) return "High";
-  if (score >= 4.0) return "Medium";
-  return "Low";
-}
+// --- Helpers ---
 
 function formatPercent(value) {
   if (value == null) return "N/A";
   return `${(value * 100).toFixed(1)}%`;
 }
 
-function formatExploitationActivity(activity) {
-  if (!activity) return "None observed";
-  const windows = [];
-  if (activity["0_to_7_days"]) windows.push("Last 7 days");
-  if (activity["8_to_30_days"]) windows.push("8–30 days");
-  if (activity["31_to_365_days"]) windows.push("31–365 days");
-  if (activity["366_plus_days"]) windows.push("366+ days");
-  return windows.length > 0 ? windows.join(", ") : "None observed";
+function weightArrow(weightCategory) {
+  switch (weightCategory) {
+    case "2":  return "↑↑";
+    case "1":  return " ↑";
+    case "0":  return "←→";
+    case "-1": return " ↓";
+    default:   return "←→";
+  }
 }
 
-function buildCveCard(cve) {
-  const cvss = cve.cvss?.[0];
-  const cvssScore = cvss?.score;
-  const globalScore = cve.scores?.global;
-  const epssScore = cve.scores?.epss_v4 || cve.scores?.epss_v3;
+const CATEGORY_ICONS = {
+  Chatter:           ":speech_balloon:",
+  "Exploit Code":    ":computer:",
+  Exploitation:      ":zap:",
+  References:        ":link:",
+  "Threat Intel":    ":shield:",
+  Vendor:            ":office:",
+  "Vuln Attributes": ":gear:",
+};
 
-  const blocks = [
-    {
-      type: "header",
-      text: {
-        type: "plain_text",
-        text: `${cve.identifier}`,
-        emoji: true,
-      },
-    },
-    {
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: truncate(cve.description || "No description available.", 2900),
-      },
-    },
-    { type: "divider" },
-    {
-      type: "section",
-      fields: [
-        {
-          type: "mrkdwn",
-          text: `*CVSS Score*\n${severityEmoji(cvssScore)} ${cvssScore != null ? `${cvssScore} (${severityLabel(cvssScore)})` : "N/A"}`,
-        },
-        {
-          type: "mrkdwn",
-          text: `*CVSS Version*\n${cvss?.version || "N/A"}`,
-        },
-        {
-          type: "mrkdwn",
-          text: `*Global Score*\n${globalScore?.score != null ? `${formatPercent(globalScore.score)} (${formatPercent(globalScore.percentile)} percentile)` : "N/A"}`,
-        },
-        {
-          type: "mrkdwn",
-          text: `*EPSS Score*\n${epssScore?.score != null ? `${formatPercent(epssScore.score)} (${formatPercent(epssScore.percentile)} percentile)` : "N/A"}`,
-        },
-      ],
-    },
-    { type: "divider" },
-    {
-      type: "section",
-      fields: [
-        {
-          type: "mrkdwn",
-          text: `*Exploitation Activity*\n${cve.has_exploitation_activity ? ":warning: Yes" : "No"}\n${formatExploitationActivity(cve.exploitation_activity)}`,
-        },
-        {
-          type: "mrkdwn",
-          text: `*CISA KEV*\n${cve.cisa_kev_added_at ? `:rotating_light: Added ${cve.cisa_kev_added_at}` : "Not listed"}`,
-        },
-      ],
-    },
-  ];
+const CATEGORY_ORDER = [
+  "Chatter",
+  "Exploit Code",
+  "Exploitation",
+  "References",
+  "Threat Intel",
+  "Vendor",
+  "Vuln Attributes",
+];
 
-  // Tags section
-  const tags = cve.tags;
-  if (tags) {
-    const tagParts = [];
-    if (tags.actor?.length) tagParts.push(`*Actors:* ${tags.actor.join(", ")}`);
-    if (tags.keywords?.length)
-      tagParts.push(`*Keywords:* ${tags.keywords.join(", ")}`);
-    if (tags.component?.length)
-      tagParts.push(`*Components:* ${tags.component.join(", ")}`);
+function formatPlatforms(platforms) {
+  if (!platforms?.length) return "_No platforms listed_";
 
-    if (tagParts.length > 0) {
-      blocks.push({
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: tagParts.join("\n"),
-        },
-      });
-    }
+  const grouped = {};
+  for (const p of platforms) {
+    if (!grouped[p.vendor]) grouped[p.vendor] = [];
+    grouped[p.vendor].push(p.product);
   }
 
-  // Platforms
-  if (cve.platforms?.length) {
-    const platformText = cve.platforms
-      .slice(0, 10)
-      .map((p) => `${p.vendor} — ${p.product}`)
-      .join("\n");
-    blocks.push({
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: `*Affected Platforms*\n${platformText}${cve.platforms.length > 10 ? `\n_...and ${cve.platforms.length - 10} more_` : ""}`,
-      },
-    });
-  }
-
-  // Exploits
-  const exploitCount =
-    (cve.exploits?.metasploit?.length || 0) +
-    (cve.exploits?.exploitdb?.length || 0) +
-    (cve.exploits?.github?.length || 0);
-  if (exploitCount > 0) {
-    blocks.push({
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: `*Public Exploits:* ${exploitCount} known (Metasploit: ${cve.exploits?.metasploit?.length || 0}, ExploitDB: ${cve.exploits?.exploitdb?.length || 0}, GitHub: ${cve.exploits?.github?.length || 0})`,
-      },
-    });
-  }
-
-  // Dates
-  blocks.push({ type: "divider" });
-  blocks.push({
-    type: "context",
-    elements: [
-      {
-        type: "mrkdwn",
-        text: [
-          cve.published_at && `Published: ${cve.published_at}`,
-          cve.last_updated_at && `Updated: ${cve.last_updated_at}`,
-        ]
-          .filter(Boolean)
-          .join("  |  "),
-      },
-    ],
+  const vendors = Object.keys(grouped).slice(0, 5);
+  const lines = vendors.map((vendor) => {
+    const products = grouped[vendor].slice(0, 5);
+    const extra =
+      grouped[vendor].length > 5
+        ? ` _+${grouped[vendor].length - 5} more_`
+        : "";
+    return `*${vendor}:* ${products.join(", ")}${extra}`;
   });
 
-  // Link to Empirical Security
+  const totalVendors = Object.keys(grouped).length;
+  const totalPlatforms = platforms.length;
+  if (totalVendors > 5) {
+    lines.push(
+      `_+${totalVendors - 5} more vendors (${totalPlatforms} platforms total)_`
+    );
+  }
+
+  return lines.join("\n");
+}
+
+function buildIndicatorFields(indicators) {
+  if (!indicators?.length) return null;
+
+  const global = indicators.find((i) => i.scoring_model === "global");
+  if (!global?.critical_indicators_data) return null;
+
+  const data = global.critical_indicators_data;
+
+  const fields = CATEGORY_ORDER
+    .filter((cat) => data[cat])
+    .map((cat) => {
+      const info = data[cat];
+      const arrow = weightArrow(info.weight_category);
+      const icon = CATEGORY_ICONS[cat] || "";
+      return {
+        type: "mrkdwn",
+        text: `${arrow}  ${icon}  *${cat}*`,
+      };
+    });
+
+  return fields.length > 0 ? fields : null;
+}
+
+function formatIndicatorsCompact(indicators) {
+  if (!indicators?.length) return null;
+
+  const global = indicators.find((i) => i.scoring_model === "global");
+  if (!global?.critical_indicators_data) return null;
+
+  const data = global.critical_indicators_data;
+  const parts = CATEGORY_ORDER
+    .filter((cat) => data[cat] && data[cat].weight_category !== "0")
+    .map((cat) => `${weightArrow(data[cat].weight_category).trim()} ${cat}`);
+
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+function formatExploitationWindows(activity) {
+  if (!activity) return null;
+  const lines = [];
+  if (activity["0_to_7_days"])    lines.push("• Within past 7 days");
+  if (activity["8_to_30_days"])   lines.push("• 8 to 30 days ago");
+  if (activity["31_to_365_days"]) lines.push("• 31 to 365 days ago");
+  if (activity["366_plus_days"])  lines.push("• Over 1 year ago");
+  return lines.length > 0 ? lines.join("\n") : null;
+}
+
+function truncate(str, max) {
+  if (str.length <= max) return str;
+  return str.slice(0, max - 3) + "...";
+}
+
+// --- Card builders ---
+
+function buildCveCard(cve, criticalIndicators) {
+  const globalScore = cve.scores?.global;
+
+  const blocks = [
+    // Header
+    {
+      type: "header",
+      text: { type: "plain_text", text: cve.identifier, emoji: true },
+    },
+    // Global Score
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*Global Score:*  ${globalScore?.score != null ? `${formatPercent(globalScore.score)}  (${formatPercent(globalScore.percentile)} percentile)` : "N/A"}`,
+      },
+    },
+    // Summary
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*Summary*\n${truncate(cve.description || "No description available.", 2900)}`,
+      },
+    },
+    { type: "divider" },
+  ];
+
+  // Critical Indicators — 2-column grid using section.fields
+  const ciFields = buildIndicatorFields(criticalIndicators);
+  if (ciFields) {
+    blocks.push({
+      type: "section",
+      text: { type: "mrkdwn", text: "*Critical Indicators*" },
+    });
+    // Slack renders fields in a 2-column grid
+    blocks.push({
+      type: "section",
+      fields: ciFields,
+    });
+    blocks.push({ type: "divider" });
+  }
+
+  // Exploitation Activity
+  const windows = formatExploitationWindows(cve.exploitation_activity);
+  blocks.push({
+    type: "section",
+    text: {
+      type: "mrkdwn",
+      text: `*Known Exploitation Activity:*  ${cve.has_exploitation_activity ? "Yes" : "None observed"}${windows ? "\n" + windows : ""}`,
+    },
+  });
+  blocks.push({ type: "divider" });
+
+  // Vendors & Products
+  blocks.push({
+    type: "section",
+    text: {
+      type: "mrkdwn",
+      text: `*Vendors and Products*\n${formatPlatforms(cve.platforms)}`,
+    },
+  });
+
+  // Action button
+  blocks.push({ type: "divider" });
   blocks.push({
     type: "actions",
     elements: [
@@ -173,15 +199,12 @@ function buildCveCard(cve) {
   return blocks;
 }
 
-function buildSearchResultsBlocks(results, query) {
+function buildSearchResultsBlocks(results, query, criticalIndicatorsMap) {
   if (!results || results.length === 0) {
     return [
       {
         type: "section",
-        text: {
-          type: "mrkdwn",
-          text: `No results found for: \`${query}\``,
-        },
+        text: { type: "mrkdwn", text: `No results found for: \`${query}\`` },
       },
     ];
   }
@@ -189,16 +212,11 @@ function buildSearchResultsBlocks(results, query) {
   const blocks = [
     {
       type: "header",
-      text: {
-        type: "plain_text",
-        text: `Search Results (${results.length})`,
-      },
+      text: { type: "plain_text", text: `Search Results (${results.length})` },
     },
     {
       type: "context",
-      elements: [
-        { type: "mrkdwn", text: `Query: \`${query}\`` },
-      ],
+      elements: [{ type: "mrkdwn", text: `Query: \`${query}\`` }],
     },
     { type: "divider" },
   ];
@@ -206,20 +224,23 @@ function buildSearchResultsBlocks(results, query) {
   const displayed = results.slice(0, 10);
 
   for (const cve of displayed) {
-    const cvss = cve.cvss?.[0];
-    const cvssScore = cvss?.score;
     const globalScore = cve.scores?.global;
+    const ci = criticalIndicatorsMap?.[cve.identifier];
+    const ciCompact = formatIndicatorsCompact(ci);
+
+    const lines = [
+      `*<https://app.empiricalsecurity.com/cves/${cve.identifier}|${cve.identifier}>*  —  Global: ${globalScore?.score != null ? formatPercent(globalScore.score) : "N/A"}`,
+      truncate(cve.description || "No description.", 200),
+      `Exploitation: ${cve.has_exploitation_activity ? "Yes" : "None"} — ${formatExploitationWindows(cve.exploitation_activity) ? formatExploitationWindows(cve.exploitation_activity).replace(/\n/g, ", ").replace(/• /g, "") : "None observed"}`,
+    ];
+
+    if (ciCompact) {
+      lines.push(`Indicators: ${ciCompact}`);
+    }
 
     blocks.push({
       type: "section",
-      text: {
-        type: "mrkdwn",
-        text: [
-          `*<https://app.empiricalsecurity.com/cves/${cve.identifier}|${cve.identifier}>*`,
-          truncate(cve.description || "No description.", 200),
-          `${severityEmoji(cvssScore)} CVSS: ${cvssScore ?? "N/A"} | Global: ${globalScore?.score != null ? formatPercent(globalScore.score) : "N/A"} | ${cve.has_exploitation_activity ? ":warning: Exploited" : "No exploitation observed"}`,
-        ].join("\n"),
-      },
+      text: { type: "mrkdwn", text: lines.join("\n") },
     });
     blocks.push({ type: "divider" });
   }
@@ -237,11 +258,6 @@ function buildSearchResultsBlocks(results, query) {
   }
 
   return blocks;
-}
-
-function truncate(str, max) {
-  if (str.length <= max) return str;
-  return str.slice(0, max - 3) + "...";
 }
 
 module.exports = { buildCveCard, buildSearchResultsBlocks };
