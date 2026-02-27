@@ -39,3 +39,11 @@ dev:
 # Start the app
 start:
     npm start
+
+# Build Docker image (Node 22, port 3010)
+docker-build:
+    docker build -t empirical-security-slack:latest .
+
+# Run the service via Docker Compose (port 3010)
+docker-up:
+    docker compose up --build

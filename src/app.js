@@ -10,7 +10,19 @@ const app = new App({
   signingSecret: process.env.SLACK_SIGNING_SECRET,
   socketMode: true,
   appToken: process.env.SLACK_APP_TOKEN,
-  port: Number(process.env.PORT) || 3000
+  customRoutes: [
+    {
+      path: '/health',
+      method: ['GET'],
+      handler: (req, res) => {
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ status: 'ok' }))
+      }
+    }
+  ],
+  installerOptions: {
+    port: Number(process.env.PORT) || 3010
+  }
 })
 
 const clientId = process.env.EMPIRICAL_CLIENT_ID
