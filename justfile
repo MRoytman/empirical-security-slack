@@ -21,8 +21,16 @@ audit-fix:
 outdated:
     npm outdated
 
-# Run all CI checks locally (ci-install + audit)
-ci: ci-install audit
+# Run style linter (Standard)
+lint:
+    npm run lint
+
+# Auto-fix lint issues
+lint-fix:
+    npm run lint:fix
+
+# Run all CI checks locally (ci-install + audit + lint)
+ci: ci-install audit lint
 
 # Start the app in development mode with watch
 dev:
